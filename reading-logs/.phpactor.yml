@@ -1,0 +1,25 @@
+# .phpactor.yml
+indexer.include_patterns:
+  - "/src/**/*.php"
+  - "/**/*.php"
+
+indexer.exclude_patterns:
+  - "/vendor/**/*.php"
+  - "/storage/**/*.php"
+  - "/node_modules/**/*.php"
+
+# ファイルシステムのスキャン深度を増やす
+language_server.diagnostics_on_update: true
+language_server.diagnostics_on_save: true
+
+# より積極的にファイルをスキャン
+file_path_resolvers:
+  - "glob"
+  - "composer"
+
+# スタブファイルの有効化（PHPの組み込み関数も認識）
+language_server_phpstan.enabled: true
+
+# srcディレクトリを明示的にスキャン
+indexer.stub_paths:
+  - "%project_root%/src"

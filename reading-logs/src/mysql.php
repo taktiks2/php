@@ -23,7 +23,7 @@ EOT;
     if ($res) {
         echo 'データの追加に成功しました' . PHP_EOL;
     } else {
-        echo 'ERrOR: データの追加に失敗しました' . PHP_EOL;
+        echo 'ERROR: データの追加に失敗しました' . PHP_EOL;
         echo 'Debugging error: ' . mysqli_error($link) . PHP_EOL;
     }
 }
