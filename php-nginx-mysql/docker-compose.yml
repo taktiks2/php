@@ -1,0 +1,121 @@
+# Docker Composeの設定ファイル
+# 複数のコンテナを一括で管理するための定義
+
+# services: 起動するコンテナ（サービス）の定義
+services:
+  # web: PHPアプリケーションサービス
+  # サービス名は「web」、コンテナ名は「my-php」
+  web:
+    # container_name: コンテナに付ける名前（docker psで表示される名前）
+    container_name: my-php
+
+    # build: Dockerfileの場所を指定してイメージをビルド
+    # ./docker-config/php/Dockerfile を使ってイメージを作成
+    build: ./docker-config/php
+
+    # ports: ポートマッピング（ホスト側:コンテナ側）
+    # ホストの5173番ポート → コンテナの5173番ポートに転送
+    # Viteなどの開発サーバー用
+    ports:
+      - '5173:5173'
+
+    # volumes: ホストとコンテナ間でディレクトリを共有（マウント）
+    # 形式: ホスト側のパス:コンテナ側のパス
+    volumes:
+      # カレントディレクトリをコンテナの/var/www/にマウント
+      # ホストでファイルを編集すると、コンテナ内にも即座に反映される
+      - .:/var/www/
+
+    # depends_on: このサービスが依存する他のサービスを指定
+    # mysqlサービスが起動してから、webサービスが起動する
+    # 注意: MySQLの準備完了を待つわけではなく、起動順序のみ制御
+    depends_on:
+      - mysql
+
+  # nginx: Webサーバーサービス
+  # HTTPリクエストを受け付け、静的ファイル配信やPHPへのプロキシを行う
+  nginx:
+    # container_name: コンテナに付ける名前
+    container_name: my-nginx
+
+    # image: Docker Hubから取得するベースイメージ名
+    # 公式のnginxイメージを使用
+    image: nginx
+
+    # build: カスタムDockerfileでイメージをビルド
+    # imageとbuildの両方がある場合、buildが優先される
+    build: ./docker-config/nginx
+
+    # ports: ポートマッピング
+    # ホストの81番ポート → コンテナの80番ポート（HTTP）に転送
+    # ブラウザで http://localhost:81 にアクセスすると、このnginxに到達
+    ports:
+      - "81:80"
+
+    # volumes: ホストとコンテナ間のディレクトリ/ファイル共有
+    volumes:
+      # カレントディレクトリをコンテナの/var/wwwにマウント
+      # PHPファイルやHTMLファイルなどを配信するため
+      - .:/var/www
+
+      # Nginxの設定ファイルをマウント
+      # ホスト側のdefault.confをコンテナ内の設定ディレクトリに配置
+      # この設定でPHPへのリクエスト転送やルーティングを制御
+      - ./docker-config/nginx/default.conf:/etc/nginx/conf.d/default.conf
+
+    # depends_on: 起動順序の制御
+    # webサービス（PHP）が起動してから、nginxを起動
+    depends_on:
+      - web
+
+  # mysql: データベースサービス
+  mysql:
+    # container_name: コンテナに付ける名前
+    container_name: my-mysql
+
+    # image: Docker Hubの公式MySQLイメージを使用
+    # バージョン指定なしなので、最新版（latest）が取得される
+    image: mysql
+
+    # ports: ポートマッピング
+    # ホストの3306番 → コンテナの3306番（MySQL標準ポート）に転送
+    # ホストから「mysql -h 127.0.0.1 -P 3306」で接続可能
+    ports:
+      - 3306:3306
+
+    # environment: コンテナ内の環境変数を設定
+    # ${変数名}は.envファイルから読み込まれる
+    environment:
+      # MYSQL_DATABASE: 初回起動時に自動作成されるデータベース名
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+
+      # MYSQL_ROOT_PASSWORD: rootユーザーのパスワード（必須）
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+
+      # MYSQL_USER: 作成する一般ユーザー名
+      # rootとは別の、アプリケーション用ユーザー
+      MYSQL_USER: ${MYSQL_USER}
+
+      # MYSQL_PASSWORD: 上記ユーザーのパスワード
+      # MYSQL_USERで指定したユーザーに設定される
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+
+      # TZ: タイムゾーンの設定
+      # ログのタイムスタンプなどに影響
+      TZ: ${TZ}
+
+    # volumes: データの永続化と設定ファイルのマウント
+    volumes:
+      # MySQLのデータディレクトリをマウント
+      # データベースの実体ファイルが保存される
+      # コンテナを削除してもデータは残る（永続化）
+      - ./docker-config/mysql/data:/var/lib/mysql
+
+      # MySQL設定ファイル用ディレクトリをマウント
+      # my.cnfなどの設定ファイルを配置すると、MySQLに反映される
+      - ./docker-config/mysql/conf:/etc/mysql/conf.d
+
+      # 初期化スクリプト用ディレクトリをマウント
+      # .sqlファイルを配置すると、初回起動時に自動実行される
+      # テーブル作成やマスタデータ投入に使用
+      - ./docker-config/mysql/initdb:/docker-entrypoint-initdb.d
