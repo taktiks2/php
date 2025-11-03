@@ -945,3 +945,350 @@ docker compose exec web php artisan migrate
 ホストマシンから実行するとエラーになる理由：
 - `.env`の`DB_HOST=mysql`は**Docker内部ネットワーク**のホスト名
 - ホストマシンから実行すると、`mysql`というホスト名が解決できない
+
+---
+
+## フロントエンド開発 (Laravel + Inertia.js + React)
+
+このプロジェクトでは、フロントエンドにInertia.js + Reactを使用しています。
+
+### アーキテクチャ概要
+
+```
+ブラウザ → Nginx:81 → PHP-FPM → Laravel → Inertia.js
+                                              ↓
+                                    React コンポーネント
+                                              ↓
+                                    Vite (開発サーバー :5173)
+```
+
+### 開発環境のセットアップ
+
+#### 1. 依存パッケージのインストール
+
+```bash
+# PHPコンテナ内でnpmパッケージをインストール
+docker compose exec web bash
+cd /var/www
+npm install
+```
+
+#### 2. Vite開発サーバーの設定
+
+Docker内でViteを動作させるには、`vite.config.js`で`host: '0.0.0.0'`の設定が必要です：
+
+```javascript
+// my-app/vite.config.js
+export default defineConfig({
+    plugins: [
+        laravel({
+            input: ["resources/css/app.css", "resources/js/app.jsx"],
+            refresh: true,
+        }),
+        tailwindcss(),
+        react(),
+    ],
+    server: {
+        host: '0.0.0.0',      // Docker外部からアクセス可能にする
+        port: 5173,
+        strictPort: true,
+        hmr: {
+            host: 'localhost',  // Hot Module Replacementのホスト
+        },
+    },
+});
+```
+
+### 動作確認方法
+
+#### 開発モード（`npm run dev`）
+
+開発中はViteの開発サーバーを起動します。HMR（Hot Module Replacement）により、コード変更が即座にブラウザに反映されます。
+
+**1. Vite開発サーバーを起動**
+
+```bash
+# PHPコンテナ内で実行
+docker compose exec web bash
+cd /var/www
+npm run dev
+```
+
+または、コンテナ外から実行：
+
+```bash
+docker compose exec web npm run dev --prefix /var/www
+```
+
+**2. ブラウザでアクセス**
+
+```
+http://localhost:81
+```
+
+**注意**: `http://localhost:5173`に直接アクセスしても動作しません。必ず`localhost:81`（Nginx経由）でアクセスしてください。
+
+**3. 動作確認**
+
+- ブラウザのコンソールにエラーがないことを確認
+- `resources/js/Pages/Welcome.jsx`を編集して、変更が即座に反映されることを確認
+
+**4. Viteの停止**
+
+Viteを起動したターミナルで`Ctrl + C`を押します。
+
+#### 本番モード（`npm run build`）
+
+本番環境やビルド済みアセットでテストする場合は、アセットをビルドします。
+
+**1. アセットをビルド**
+
+```bash
+# PHPコンテナ内で実行
+docker compose exec web bash
+cd /var/www
+npm run build
+```
+
+これにより、`public/build`ディレクトリに最適化されたJavaScript/CSSファイルが生成されます。
+
+**2. ブラウザでアクセス**
+
+```
+http://localhost:81
+```
+
+**3. 確認ポイント**
+
+- ビルドモードでは、Vite開発サーバーの起動は不要です
+- HMRは動作しませんが、本番環境と同じ動作を確認できます
+- `public/build/manifest.json`が生成されていることを確認
+
+**4. 開発モードに戻る**
+
+再度`npm run dev`を実行すると、開発モードに戻ります。
+
+### localhost:81にアクセスしてからWelcome.jsxが表示されるまでの流れ
+
+#### 全体の流れ（開発モード）
+
+```
+① ブラウザ: GET http://localhost:81/
+   ↓
+② Nginx (localhost:81) → PHP-FPM (web:9000)
+   ↓
+③ Laravel ルーティング処理 (routes/web.php:6)
+   Route::get('/', function () {
+       return Inertia::render('Welcome');
+   });
+   ↓
+④ Inertiaミドルウェア (app/Http/Middleware/HandleInertiaRequests.php:17)
+   protected $rootView = 'app';
+   ↓
+⑤ Bladeテンプレートのレンダリング (resources/views/app.blade.php)
+   @vite(['resources/js/app.jsx', "resources/js/Pages/{$page['component']}.jsx"])
+   @inertiaHead
+   @inertia
+   ↓
+⑥ Nginxがブラウザに以下のHTMLを返す:
+   <!DOCTYPE html>
+   <html>
+   <head>
+       <script type="module" src="http://localhost:5173/@vite/client"></script>
+       <script type="module" src="http://localhost:5173/resources/js/app.jsx"></script>
+       <script type="application/json" data-page>
+           {"component":"Welcome","props":{...},"url":"/","version":"..."}
+       </script>
+   </head>
+   <body>
+       <div id="app" data-page='{"component":"Welcome",...}'></div>
+   </body>
+   </html>
+   ↓
+⑦ ブラウザがJavaScriptファイルをリクエスト
+   GET http://localhost:5173/@vite/client
+   GET http://localhost:5173/resources/js/app.jsx
+   ↓
+⑧ Vite開発サーバー (localhost:5173) がJSXをトランスパイルして返す
+   ↓
+⑨ ブラウザでapp.jsx (resources/js/app.jsx:6-15) が実行される
+   createInertiaApp({
+       resolve: (name) =>  // name = "Welcome"
+           resolvePageComponent(
+               `./Pages/${name}.jsx`,
+               import.meta.glob("./Pages/**/*.jsx"),
+           ),
+       setup: ({ el, App, props }) => {
+           createRoot(el).render(<App {...props} />);
+       },
+   });
+   ↓
+⑩ Welcome.jsxを動的インポート
+   GET http://localhost:5173/resources/js/Pages/Welcome.jsx
+   ↓
+⑪ Viteが Welcome.jsx をトランスパイルして返す
+   ↓
+⑫ Reactが Welcome コンポーネントを <div id="app"> にマウント
+   ↓
+⑬ 画面に「Welcome to Laravel + Inertia + React!」が表示される
+```
+
+#### 詳細説明
+
+**① ブラウザからのリクエスト**
+
+ユーザーが`http://localhost:81`にアクセスします。
+
+**② Nginx → PHP-FPM**
+
+Nginxがリクエストを受け取り、PHP-FPMに転送します（FastCGIプロトコル）。
+
+**③ Laravelルーティング**
+
+`routes/web.php:6-8`で定義されたルートが実行され、`Inertia::render('Welcome')`が呼ばれます。
+
+**④ Inertiaミドルウェア**
+
+`app/Http/Middleware/HandleInertiaRequests.php:17`で定義された`$rootView = 'app'`により、`resources/views/app.blade.php`がルートビューとして使用されます。
+
+**⑤ Bladeテンプレートのレンダリング**
+
+`app.blade.php`がレンダリングされ、以下が生成されます：
+- `@vite()`ディレクティブがVite開発サーバーへの`<script>`タグを生成
+- `@inertia`ディレクティブが`<div id="app">`とページデータを含むHTMLを生成
+
+**⑥-⑦ ブラウザでHTMLを解析**
+
+ブラウザがHTMLを受け取り、`<script src="http://localhost:5173/...">`を発見してVite開発サーバーにリクエストを送ります。
+
+**⑧ Viteがトランスパイル**
+
+Vite開発サーバーが：
+- JSXをJavaScriptに変換
+- ESモジュール形式で返す
+- 開発モードでは最適化せずに高速変換
+
+**⑨ app.jsxの実行**
+
+`createInertiaApp()`が実行され：
+- HTMLの`data-page`属性からページコンポーネント名（"Welcome"）を取得
+- `resolvePageComponent()`で該当するコンポーネント（`./Pages/Welcome.jsx`）を動的インポート
+
+**⑩-⑪ Welcome.jsxの動的インポート**
+
+ブラウザが`Welcome.jsx`をViteにリクエストし、Viteがトランスパイルして返します。
+
+**⑫ Reactコンポーネントのマウント**
+
+React 18の`createRoot().render()`により、`Welcome`コンポーネントが`<div id="app">`にマウントされます。
+
+**⑬ 画面表示完了**
+
+`resources/js/Pages/Welcome.jsx:1-14`のコンポーネントが表示されます。
+
+#### 重要なポイント
+
+- **最初のHTMLはLaravel（サーバー側）が生成**
+  - SSR（Server-Side Rendering）ではなく、テンプレートレンダリング
+  - HTMLにはページデータ（JSON）が埋め込まれている
+
+- **JavaScriptはVite開発サーバーから配信**
+  - 開発モードではポート5173から配信
+  - 本番モードでは`public/build`から配信
+
+- **Reactコンポーネントはクライアント側でマウント**
+  - CSR（Client-Side Rendering）
+  - Inertia.jsが初期データを提供
+
+- **HMR（Hot Module Replacement）が有効**
+  - コード変更が即座にブラウザに反映される
+  - ページ全体のリロードなしで更新される
+
+### トラブルシューティング
+
+#### Vite開発サーバーに接続できない
+
+**症状**: ブラウザのコンソールに`Failed to fetch dynamically imported module`などのエラーが表示される
+
+**原因**: Vite開発サーバーが起動していない、または接続できない
+
+**解決方法**:
+
+1. Vite開発サーバーが起動しているか確認
+   ```bash
+   docker compose exec web ps aux | grep vite
+   ```
+
+2. `vite.config.js`の設定を確認
+   ```javascript
+   server: {
+       host: '0.0.0.0',  // この設定が必要
+       port: 5173,
+   }
+   ```
+
+3. ポート5173が公開されているか確認
+   ```bash
+   docker compose ps
+   # webサービスで 0.0.0.0:5173->5173/tcp が表示されるはず
+   ```
+
+#### localhost:5173に直接アクセスしても動かない
+
+**原因**: Vite開発サーバーは単体では動作しません。Laravelが生成したHTMLが必要です。
+
+**解決方法**: `http://localhost:81`（Nginx経由）でアクセスしてください。
+
+#### npm run buildの後、変更が反映されない
+
+**原因**: ブラウザがビルド済みアセットをキャッシュしている
+
+**解決方法**:
+
+1. ブラウザのキャッシュをクリア（Ctrl+Shift+R または Cmd+Shift+R）
+2. 再度`npm run build`を実行
+3. または開発モード（`npm run dev`）で動作確認
+
+#### コンテナ内でnpmコマンドが見つからない
+
+**原因**: Node.jsがインストールされていない
+
+**解決方法**: `docker-config/php/Dockerfile`を確認し、Node.jsがインストールされていることを確認してください。
+
+```dockerfile
+# Node.jsのインストール例
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs
+```
+
+### ファイル構成
+
+```
+my-app/
+├── resources/
+│   ├── js/
+│   │   ├── app.jsx                    # Inertia.jsのエントリーポイント
+│   │   ├── Pages/
+│   │   │   └── Welcome.jsx            # Reactコンポーネント
+│   │   └── bootstrap.js               # axiosなどの初期化
+│   ├── css/
+│   │   └── app.css                    # Tailwind CSSのエントリーポイント
+│   └── views/
+│       └── app.blade.php              # Inertia.jsのルートビュー
+├── routes/
+│   └── web.php                        # ルーティング定義
+├── app/
+│   └── Http/
+│       └── Middleware/
+│           └── HandleInertiaRequests.php  # Inertiaミドルウェア
+├── public/
+│   └── build/                         # npm run buildの出力先
+├── vite.config.js                     # Viteの設定
+└── package.json                       # npm依存パッケージ
+```
+
+### 参考資料
+
+- [Inertia.js 公式ドキュメント](https://inertiajs.com/)
+- [Laravel Vite 公式ドキュメント](https://laravel.com/docs/vite)
+- [React 公式ドキュメント](https://react.dev/)
