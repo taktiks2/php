@@ -11,6 +11,43 @@ services:
   mysql (my-mysql) - データベース (ポート: 3306)
 ```
 
+### ポート番号について
+
+このプロジェクトで使用している主要なポート番号の説明：
+
+| ポート | サービス | 公開 | 説明 |
+|--------|---------|------|------|
+| **81** | Nginx | ✅ | ブラウザからアクセスするHTTPポート<br>`http://localhost:81` |
+| **9000** | PHP-FPM | ❌ | NginxとPHP-FPM間の内部通信（FastCGI）<br>Docker内部ネットワークのみ（`web:9000`） |
+| **3306** | MySQL | ✅ | データベース接続ポート<br>`mysql -h 127.0.0.1 -P 3306` |
+| **5173** | Vite | ✅ | フロントエンド開発サーバー（Vite/HMR用）<br>起動時のみ `http://localhost:5173` |
+
+#### 通信フロー
+
+```
+ブラウザ → localhost:81 (HTTP) → Nginx:80
+                                   ↓
+                         web:9000 (FastCGI) → PHP-FPM:9000
+                                                  ↓
+                                         mysql:3306 → MySQL:3306
+```
+
+#### ポート9000について
+
+- **9000番はPHP-FPMの慣習的なデフォルトポート**
+- 技術的には9001や他の番号でも動作可能
+- ただし、変更する場合は以下の両方を修正する必要があります：
+  1. PHP-FPMの設定ファイル（`/usr/local/etc/php-fpm.d/www.conf`）
+  2. Nginxの設定ファイル（`docker-config/nginx/default.conf`の`fastcgi_pass`）
+
+**推奨**: 特別な理由がない限りデフォルト（9000）を使用することを推奨します。
+
+#### なぜブラウザから直接9000にアクセスできないのか
+
+1. **ポートが公開されていない** - docker-compose.ymlで9000番ポートを外部に公開していない
+2. **FastCGIプロトコル** - PHP-FPMはFastCGIプロトコルで通信（HTTPではない）
+3. **Docker内部ネットワーク** - `web:9000`はDocker内部でのみ使える名前
+
 ### 基本コマンド
 
 #### コンテナの起動
@@ -117,6 +154,80 @@ docker compose exec mysql mysql -u mysql -pmysql
 ```
 
 **重要**: `docker compose exec`では**サービス名**を使用します（`web`, `mysql`, `nginx`）
+
+#### MySQLデータベースの操作
+
+**MySQLコンテナに入ってデータベースを確認する方法**
+
+```bash
+# 方法1: MySQLコンテナに入る
+docker exec -it my-mysql bash
+
+# MySQLにログイン（rootユーザー）
+mysql -u root -p
+# パスワード入力: .envファイルのMYSQL_ROOT_PASSWORDを入力
+
+# または一般ユーザーでログイン
+mysql -u ${MYSQL_USER} -p
+# パスワード入力: .envファイルのMYSQL_PASSWORDを入力
+```
+
+**MySQLにログインした後の基本コマンド**
+
+```sql
+-- データベース一覧を表示
+SHOW DATABASES;
+
+-- 使用するデータベースを選択
+USE データベース名;
+
+-- テーブル一覧を表示
+SHOW TABLES;
+
+-- テーブルのカラム名を確認（最も簡単）
+DESC テーブル名;
+-- または
+DESCRIBE テーブル名;
+
+-- テーブルの構造を詳しく確認
+SHOW COLUMNS FROM テーブル名;
+
+-- テーブル作成時のCREATE文を確認
+SHOW CREATE TABLE テーブル名;
+
+-- テーブルのデータを確認
+SELECT * FROM テーブル名;
+
+-- 特定のカラムの情報を確認
+SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'テーブル名'
+AND TABLE_SCHEMA = 'データベース名';
+
+-- 終了
+EXIT;
+```
+
+**コンテナに入らず1行でコマンドを実行**
+
+```bash
+# データベース一覧を確認
+docker exec -it my-mysql mysql -u root -p${MYSQL_ROOT_PASSWORD} -e "SHOW DATABASES;"
+
+# 特定のデータベースのテーブル一覧を確認
+docker exec -it my-mysql mysql -u root -p${MYSQL_ROOT_PASSWORD} データベース名 -e "SHOW TABLES;"
+
+# テーブルのカラム名を確認
+docker exec -it my-mysql mysql -u root -p${MYSQL_ROOT_PASSWORD} データベース名 -e "DESC テーブル名;"
+```
+
+**ホストマシンから直接接続する方法**
+
+MySQLクライアントがホストにインストールされている場合：
+
+```bash
+mysql -h 127.0.0.1 -P 3306 -u root -p
+```
 
 #### コンテナ名で接続する場合
 
@@ -574,3 +685,263 @@ FastCGI / PHP-FPM（速い）:
 ### 参考資料
 
 https://zenn.dev/fire_arlo/articles/laravel-docker-setup-without-sail
+
+---
+
+## Laravel
+
+### Factories と Seeders
+
+Laravelの`factories`と`seeders`は、テストデータやダミーデータを生成するための仕組みです。
+
+#### Factories（ファクトリー）
+
+**役割**: モデルのダミーデータを生成するための「設計図」
+
+```php
+// database/factories/TodoFactory.php
+class TodoFactory extends Factory
+{
+    public function definition(): array
+    {
+        return [
+            'title' => fake()->sentence(),           // ランダムな文章
+            'description' => fake()->paragraph(),     // ランダムな段落
+            'completed' => fake()->boolean(20),       // 20%の確率でtrue
+        ];
+    }
+}
+```
+
+**使い方**:
+```php
+// テストやシーダーで使用
+Todo::factory()->count(10)->create();  // 10件のTodoを作成
+Todo::factory()->create(['completed' => true]);  // 特定の値で1件作成
+```
+
+#### Seeders（シーダー）
+
+**役割**: データベースに実際にデータを投入する「実行スクリプト」
+
+```php
+// database/seeders/TodoSeeder.php
+class TodoSeeder extends Seeder
+{
+    public function run(): void
+    {
+        // Factoryを使って50件のTodoを作成
+        Todo::factory()->count(50)->create();
+
+        // または手動でデータを作成
+        Todo::create([
+            'title' => '最初のTodo',
+            'description' => 'これは手動で作成したデータです',
+            'completed' => false,
+        ]);
+    }
+}
+```
+
+#### Factories と Seeders の関係
+
+```
+┌──────────────┐
+│  Factories   │ ← データの「設計図」（ランダムデータの生成ルール）
+└──────┬───────┘
+       │ 使用される
+       ↓
+┌──────────────┐
+│   Seeders    │ ← データの「実行スクリプト」（実際にDBに投入）
+└──────────────┘
+```
+
+#### 使用手順
+
+**1. Factoryを作成**
+
+```bash
+# PHPコンテナ内で実行
+docker compose exec web bash
+php artisan make:factory TodoFactory --model=Todo
+```
+
+**2. Seederを作成**
+
+```bash
+php artisan make:seeder TodoSeeder
+```
+
+**3. DatabaseSeederに登録**
+
+`database/seeders/DatabaseSeeder.php`を編集：
+
+```php
+public function run(): void
+{
+    $this->call([
+        TodoSeeder::class,
+    ]);
+}
+```
+
+**4. シーダーを実行**
+
+```bash
+# すべてのシーダーを実行
+php artisan db:seed
+
+# 特定のシーダーのみ実行
+php artisan db:seed --class=TodoSeeder
+
+# マイグレーション + シーダーを一度に実行（テーブルを全削除して再作成）
+php artisan migrate:fresh --seed
+```
+
+#### モデルにHasFactoryトレイトを追加
+
+ファクトリーを使用するには、モデルに`HasFactory`トレイトが必要です：
+
+```php
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;  // ← 追加
+use Illuminate\Database\Eloquent\Model;
+
+class Todo extends Model
+{
+    use HasFactory;  // ← 追加
+
+    protected $fillable = ['title', 'description', 'completed'];
+}
+```
+
+#### 使い分け
+
+| 用途 | 使うもの |
+|-----|---------|
+| **開発環境でテストデータが欲しい** | Factories + Seeders |
+| **ユニットテストで毎回データ生成** | Factories（テストコード内で直接使用） |
+| **本番環境の初期データ（マスタデータ）** | Seeders（手動でデータ定義） |
+| **ランダムデータ生成** | Factories |
+
+#### 実用例
+
+**開発中にダミーデータを大量生成**
+
+```bash
+# テーブルを全削除 → マイグレーション → シーダー実行
+docker compose exec web php artisan migrate:fresh --seed
+```
+
+**テストコードでの使用**
+
+```php
+// tests/Feature/TodoTest.php
+public function test_todo_list_display()
+{
+    // テスト用に3件のTodoを作成
+    $todos = Todo::factory()->count(3)->create();
+
+    $response = $this->get('/todos');
+    $response->assertStatus(200);
+}
+```
+
+**データの確認**
+
+```bash
+# MySQLコンテナに入る
+docker exec -it my-mysql bash
+
+# MySQLにログイン
+mysql -u root -p
+
+# データベースを選択
+USE development;
+
+# Todoテーブルのデータを確認
+SELECT id, title, completed, created_at FROM todos LIMIT 10;
+```
+
+### マイグレーション
+
+#### 既存テーブルにカラムを追加
+
+テーブルが既に作成されている場合、カラムを追加する方法：
+
+**方法1: 新しいマイグレーションファイルを作成（推奨）**
+
+```bash
+# PHPコンテナ内で実行
+docker compose exec web bash
+php artisan make:migration add_columns_to_todos_table
+```
+
+生成されたマイグレーションファイルを編集：
+
+```php
+public function up(): void
+{
+    Schema::table('todos', function (Blueprint $table) {
+        $table->string('title')->after('id');
+        $table->text('description')->nullable()->after('title');
+        $table->boolean('completed')->default(false)->after('description');
+    });
+}
+
+public function down(): void
+{
+    Schema::table('todos', function (Blueprint $table) {
+        $table->dropColumn(['title', 'description', 'completed']);
+    });
+}
+```
+
+マイグレーション実行：
+```bash
+php artisan migrate
+```
+
+**方法2: テーブルを削除して再作成（開発環境のみ）**
+
+データが消えても問題ない開発環境の場合：
+
+```bash
+# 既存のマイグレーションファイルを修正してから実行
+php artisan migrate:fresh
+
+# またはロールバック後に再実行
+php artisan migrate:rollback
+php artisan migrate
+```
+
+#### マイグレーションとモデルの関係
+
+**重要**: Laravelのマイグレーション生成コマンドは、モデルの内容を読み取りません。
+
+```
+モデル (Todo.php)          マイグレーション (create_todos_table.php)
+↓                          ↓
+アプリケーションレベル      データベースレベル
+(マスアサインメント制御)    (テーブル構造の定義)
+```
+
+- `php artisan make:migration`はマイグレーションファイルの**雛形のみ**を生成
+- モデルの`$fillable`をマイグレーションに反映する機能はない
+- 開発者が手動で両方に記述する必要がある
+
+#### マイグレーション実行時の注意
+
+コンテナ内で実行する：
+
+```bash
+# PHPコンテナ内で実行（推奨）
+docker compose exec web php artisan migrate
+```
+
+ホストマシンから実行するとエラーになる理由：
+- `.env`の`DB_HOST=mysql`は**Docker内部ネットワーク**のホスト名
+- ホストマシンから実行すると、`mysql`というホスト名が解決できない
