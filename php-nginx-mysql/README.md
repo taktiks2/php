@@ -531,3 +531,7 @@ FastCGI / PHP-FPM（速い）:
 - TypeScript/Node.js開発者がNginxに馴染みがないのは、**エコシステムが開発からデプロイまでを抽象化しているから**
 - PHP開発では常にNginx/Apacheが必須なので、自然と触れる機会が多い
 - リバースプロキシ、ロードバランシング、SSL終端などの用途では、どの言語でもNginxを使うことがある
+
+### 参考資料
+
+https://zenn.dev/fire_arlo/articles/laravel-docker-setup-without-sail

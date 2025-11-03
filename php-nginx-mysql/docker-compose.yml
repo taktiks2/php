@@ -24,7 +24,7 @@ services:
     volumes:
       # カレントディレクトリをコンテナの/var/www/にマウント
       # ホストでファイルを編集すると、コンテナ内にも即座に反映される
-      - .:/var/www/
+      - ./my-app:/var/www/
 
     # depends_on: このサービスが依存する他のサービスを指定
     # mysqlサービスが起動してから、webサービスが起動する
@@ -56,7 +56,7 @@ services:
     volumes:
       # カレントディレクトリをコンテナの/var/wwwにマウント
       # PHPファイルやHTMLファイルなどを配信するため
-      - .:/var/www
+      - ./my-app:/var/www
 
       # Nginxの設定ファイルをマウント
       # ホスト側のdefault.confをコンテナ内の設定ディレクトリに配置
