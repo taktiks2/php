@@ -1,4 +1,4 @@
-FROM php:8.1-fpm
+FROM php:8.4-fpm
 WORKDIR /var/www
 
 # システムパッケージのインストール
@@ -25,7 +25,7 @@ RUN apt-get update \
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
 # Node.jsのインストール
-RUN curl -sL https://deb.nodesource.com/setup_18.x | bash - \
+RUN curl -sL https://deb.nodesource.com/setup_24.x | bash - \
   && apt-get update \
   && apt-get install -y nodejs \
   && apt-get clean \

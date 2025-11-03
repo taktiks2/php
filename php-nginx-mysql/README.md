@@ -64,6 +64,45 @@ docker compose restart
 docker compose restart mysql
 ```
 
+#### イメージの再ビルド
+
+**重要**: `docker compose up`は既存のイメージを使用します。Dockerfileを変更した場合は、明示的に再ビルドが必要です。
+
+```bash
+# イメージを再ビルドしてから起動（推奨）
+docker compose up --build
+
+# または、ビルドと起動を分けて実行
+docker compose build
+docker compose up -d
+
+# キャッシュを使わずに完全再ビルド（パッケージバージョン更新時）
+docker compose build --no-cache
+docker compose up -d
+
+# イメージを再ビルドしてコンテナを強制再作成
+docker compose up --build --force-recreate
+```
+
+**ビルドが必要なケース**:
+- Dockerfileを変更した時（PHPバージョン変更など）
+- 新しいパッケージを追加した時
+- システムパッケージを更新したい時
+
+**ビルドが不要なケース**:
+- 単にコンテナを起動/停止する時
+- ソースコードのみ変更した時（ボリュームマウントで自動反映される）
+
+**コマンド比較表**:
+
+| コマンド | イメージ再ビルド | 用途 |
+|---------|----------------|------|
+| `docker compose up` | ❌ | 既存イメージで起動（初回のみビルド） |
+| `docker compose up --build` | ✅ | 再ビルドしてから起動 |
+| `docker compose build` | ✅ | ビルドのみ実行（起動しない） |
+| `docker compose build --no-cache` | ✅ | キャッシュなしで完全再ビルド |
+| `docker compose restart` | ❌ | コンテナ再起動（イメージ変更なし） |
+
 #### コンテナ内でコマンドを実行
 
 ```bash
