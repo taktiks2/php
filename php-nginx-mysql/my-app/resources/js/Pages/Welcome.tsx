@@ -6,7 +6,7 @@ export default function Welcome() {
                     Welcome to Laravel + Inertia + React!
                 </h1>
                 <p className="text-xl text-gray-600">
-                    Inertiaが正常に動作しています！
+                    Inertiaが正常に動作しています!
                 </p>
             </div>
         </div>
